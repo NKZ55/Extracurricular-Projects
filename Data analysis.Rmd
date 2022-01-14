@@ -1,0 +1,300 @@
+---
+title: "Employee Dimission Probability Prediction Model"
+author: "Ningkai Zheng"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+    theme: lumen
+    code_folding: hide
+    highlight: tango
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+For the company's _outstanding employees and experienced employees_, we need to build a prediction model to forecast their probability of leaving.
+
+## Load packages
+
+```{r, message=FALSE, warning=FALSE}
+library(xray)
+library(ggthemes)
+library(tidyverse)
+library(caret)
+library(pROC)
+library(DT)
+```
+
+## Load data
+
+```{r}
+hr = read.csv("HR_comma_sep.csv")
+summary(hr)
+```
+
+## Find problematic variables
+
+```{r}
+anomalies(hr)
+```
+
+Both variables containing a high proportion of zero values are reasonable.
+
+# Descriptive analysis
+
+Let's have an overview of the impact of all the factors.
+
+## Satisfaction level
+
+Employees who have left are less satisfied with the company.
+
+```{r}
+hr %>%
+  ggplot(aes(factor(left, labels=c("Not Left","Left")),
+             satisfaction_level, fill=as.factor(left))) +
+  geom_boxplot() +
+  labs(x="Left or Not", y="Satisfaction Level") +
+  theme_stata() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values=c("#90CBFB","#919191"))
+```
+
+## Evaluation
+
+Performance evaluations are higher for employees who have left compared to those who are still employed. This may be because employees with high performance evaluations are also highly competent and they have the ability to find better jobs.
+
+```{r}
+hr %>%
+  ggplot(aes(factor(left, labels=c("Not Left","Left")),
+                    last_evaluation, fill=as.factor(left))) +
+  geom_boxplot() +
+  labs(x="Left or Not", y="Last Evaluation") +
+  theme_stata() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values=c("#90CBFB","#919191"))
+```
+
+## Average monthly working hours
+
+The average monthly working hours of employees who have left the company are longer.
+
+```{r}
+hr %>%
+  ggplot(aes(factor(left, labels=c("Not Left","Left")),
+             average_montly_hours, fill=as.factor(left))) +
+  geom_boxplot() +
+  labs(x="Left or Not", y="Average monthly working hours") +
+  theme_stata() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values=c("#90CBFB","#919191"))
+```
+
+## Years of work
+
+The majority of employees who have left the company have around four years of work.
+
+```{r}
+hr %>%
+  ggplot(aes(factor(left, labels=c("Not Left","Left")),
+             time_spend_company, fill=as.factor(left))) +
+  geom_boxplot() +
+  labs(x="Left or Not", y="Years of work") +
+  theme_stata() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values=c("#90CBFB","#919191"))
+```
+
+## Number of projects
+
+A greater proportion of employees leave for those with fewer and more projects.
+
+```{r}
+hr %>%
+  ggplot(aes(as.factor(number_project), fill=as.factor(left))) +
+  geom_bar(position="fill") +
+  labs(x="Number of projects", y="Left or Not") +
+  theme_stata() +
+  theme(legend.title = element_blank()) +
+  scale_fill_manual(values=c("#90CBFB","#919191"),labels=c("Not Left","Left"))
+```
+
+## Promotion within five years
+
+The turnover rate is higher among employees who have not been promoted within five years.
+
+```{r}
+hr %>%
+  ggplot(aes(factor(promotion_last_5years,labels=c("Not Promote","Promote")),
+             fill=as.factor(left))) +
+  geom_bar(position="fill") +
+  labs(x="Promotion Last 5 years", y="Left or Not") +
+  theme_stata() +
+  theme(legend.title = element_blank()) +
+  scale_fill_manual(values=c("#90CBFB","#919191"),labels=c("Not Left","Left"))
+```
+
+## Salary level
+
+The lower the salary level, the higher the turnover rate among employees.
+
+```{r}
+hr %>%
+  ggplot(aes(factor(salary,levels=c("low","medium","high")),
+             fill=as.factor(left))) +
+  geom_bar(position="fill") +
+  labs(x="Salary Level", y="Left or Not") +
+  theme_stata() +
+  theme(legend.title = element_blank()) +
+  scale_fill_manual(values=c("#90CBFB","#919191"),labels=c("Not Left","Left"))
+```
+
+# Modelling
+
+Select good and experienced employees.
+
+```{r}
+hr_model=hr %>%
+  filter(last_evaluation>=0.7 | time_spend_company>=4 | number_project>=6)
+```
+
+Set 5-fold cross-validation.
+
+```{r}
+train_control=trainControl(method="cv",number=5)
+```
+
+```{r}
+set.seed(1234)
+```
+
+Extract 70% of the data as training data and store the row index in "index".
+
+```{r}
+index=createDataPartition(hr_model$left, p=0.7, list=F)
+```
+
+Extract training data and test data.
+
+```{r}
+train_data=hr_model[index,]
+test_data=hr_model[-index,]
+```
+
+## Regression tree
+
+```{r}
+train_data$left=as.factor(train_data$left)
+```
+
+Build the model.
+
+```{r}
+fit1 = train(left~., data=train_data, trControl=train_control, method="rpart")
+```
+
+Predictions using the model.
+
+```{r}
+fore1=predict(fit1, test_data[-7])
+```
+
+Confusion matrix:
+
+```{r}
+table(fore1,test_data$left)
+```
+
+Precision=509/(509+52)=90.73%
+Recall=509/(509+97)=83.99%
+
+## Naive Bayes
+
+```{r, warning=FALSE, results='hide'}
+fit2=train(left~., data=train_data, trControl=train_control, method="nb")
+```
+
+```{r}
+fore2=predict(fit2, test_data[-7])
+```
+
+```{r}
+table(fore2, test_data$left)
+```
+
+Precision=400/(400+24)=94.34%
+Recall=400/(400+206)=66.01%
+
+## Logistic regression
+
+```{r}
+fit3=step(glm(left ~ 1, family=binomial, train_data), direction="forward",
+          scope=~ satisfaction_level + last_evaluation + number_project +
+            average_montly_hours + time_spend_company + Work_accident +
+            promotion_last_5years + sales + salary)
+```
+
+```{r}
+summary(fit3)
+```
+
+```{r}
+fore3=predict(fit3, test_data[-7], type="response")
+```
+
+```{r}
+table(test_data$left, fore3>=0.5)
+```
+
+Precision=439/(439+109)=80.11%
+Recall=439/(439+167)=72.44%
+
+# Model evaluation
+
+```{r}
+roc_fit1=roc(test_data$left, as.numeric(as.character(fore1)))
+plot(roc_fit1)
+auc(roc_fit1)
+```
+
+```{r}
+roc_fit2=roc(test_data$left, as.numeric(as.character(fore2)))
+plot(roc_fit2)
+auc(roc_fit2)
+```
+
+```{r}
+roc_fit3=roc(test_data$left, fore3)
+plot(roc_fit3)
+auc(roc_fit3)
+```
+
+The logistic regression model has the largest auc value, suggesting that it's the best model.
+
+# Application {.tabset-fade}
+
+We can use the models to predict the probability of leaving the company for _outstanding and experienced employees_.
+
+## The best model: logistic regression model
+
+```{r}
+pred=as.numeric((fore3>=0.5))
+data=cbind(round(fore3,3),pred)
+colnames(data)=c("probability","prediction")
+datatable(data)
+```
+
+## The regression tree model
+
+```{r}
+pred1=predict(fit1, test_data[-7], type="prob")
+data1=cbind(round(pred1,3),fore1)
+colnames(data1)=c("Prob1","Prob2","prediction")
+datatable(data1)
+```
+
